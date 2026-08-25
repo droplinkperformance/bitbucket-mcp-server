@@ -1,9 +1,16 @@
 {
-  "name": "bitbucket-mcp-server",
+  "name": "@droplinkperformance/bitbucket-mcp-server",
   "version": "0.1.0",
   "description": "Provider-agnostic, AI-review-first MCP server for Bitbucket Cloud.",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/droplinkperformance/bitbucket-mcp-server.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=23"
   },
@@ -40,6 +47,7 @@
     "ioredis": "^5.4.1"
   },
   "devDependencies": {
+    "@semantic-release/git": "^10.0.1",
     "@types/node": "^22.9.0",
     "@typescript-eslint/eslint-plugin": "^8.14.0",
     "@typescript-eslint/parser": "^8.14.0",
@@ -47,8 +55,30 @@
     "eslint": "^8.57.1",
     "eslint-config-prettier": "^9.1.0",
     "prettier": "^3.3.3",
+    "semantic-release": "^24.2.9",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vitest": "^2.1.5"
+  },
+  "release": {
+    "branches": [
+      "main"
+    ],
+    "plugins": [
+      "@semantic-release/commit-analyzer",
+      "@semantic-release/release-notes-generator",
+      "@semantic-release/npm",
+      "@semantic-release/github",
+      [
+        "@semantic-release/git",
+        {
+          "assets": [
+            "package.json",
+            "package-lock.json"
+          ],
+          "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+        }
+      ]
+    ]
   }
 }

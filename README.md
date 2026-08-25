@@ -1,4 +1,4 @@
-# bitbucket-mcp-server
+# @droplinkperformance/bitbucket-mcp-server
 
 Provider-agnostic, AI-review-first [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for Bitbucket Cloud.
 
@@ -60,14 +60,36 @@ Flow: `tool -> use-case -> (agent | repository contract) -> repositories/bitbuck
 
 ## Requirements
 
-- Node.js 22+
+- Node.js 23+
 
 ## Install
+
+Published as [`@droplinkperformance/bitbucket-mcp-server`](https://www.npmjs.com/package/@droplinkperformance/bitbucket-mcp-server).
+
+```bash
+npx -y @droplinkperformance/bitbucket-mcp-server
+```
+
+From source:
 
 ```bash
 npm install
 npm run build
 ```
+
+## Release
+
+Merges to `main` run [`.github/workflows/release.yml`](.github/workflows/release.yml): tests, build, then [semantic-release](https://semantic-release.gitbook.io/). Version and npm publish happen only when the merge includes [Conventional Commits](https://www.conventionalcommits.org/):
+
+| Commit | Bump |
+| --- | --- |
+| `fix:` | patch |
+| `feat:` | minor |
+| `BREAKING CHANGE` / `feat!:` | major |
+
+Other messages skip publish. The GitHub secret `NPM_TOKEN` (npm Automation token for the `droplinkperformance` org) is required.
+
+To stay on `0.x` for the first release, tag the current commit (`git tag v0.1.0 && git push origin v0.1.0`) before the first conventional merge; otherwise semantic-release starts at `1.0.0`.
 
 ## Configuration
 
@@ -149,8 +171,8 @@ npx @modelcontextprotocol/inspector node dist/index.js
 {
   "mcpServers": {
     "bitbucket": {
-      "command": "node",
-      "args": ["/absolute/path/to/mcp-bitbucket/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "@droplinkperformance/bitbucket-mcp-server"],
       "env": {
         "MCP_TRANSPORT": "stdio",
         "BITBUCKET_ACCESS_TOKEN": "ATATT-your-api-token",
@@ -172,8 +194,8 @@ npx @modelcontextprotocol/inspector node dist/index.js
 {
   "mcpServers": {
     "bitbucket": {
-      "command": "node",
-      "args": ["/absolute/path/to/mcp-bitbucket/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "@droplinkperformance/bitbucket-mcp-server"],
       "env": {
         "BITBUCKET_ACCESS_TOKEN": "your-token",
         "BITBUCKET_DEFAULT_WORKSPACE": "your-workspace",

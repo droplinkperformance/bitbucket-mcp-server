@@ -1,49 +1,44 @@
-import type { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import type { AuthProvider } from './AuthProvider.js';
 import { HttpStatus } from '../shared/http-status.js';
-
-interface RetriableConfig extends InternalAxiosRequestConfig {
-  _authRetried?: boolean;
-}
+import { isHttpError, type HttpClient, type HttpRequest, type HttpResponse } from '../infrastructure/http/client.js';
 
 /**
- * Installs auth on an Axios instance:
- *  - request interceptor injects the Authorization header from AuthProvider;
- *  - response interceptor transparently refreshes once on a 401 and retries (OAuth only).
+ * Wraps an HTTP client:
+ *  - injects the Authorization header from AuthProvider on every request;
+ *  - on a 401, refreshes once (OAuth only) and retries.
  *
  * This is provider-agnostic: it only talks to the `AuthProvider` interface.
  */
-export function installAuthMiddleware(http: AxiosInstance, authProvider: AuthProvider): void {
-  http.interceptors.request.use(async (config) => {
-    const header = await authProvider.getAuthorizationHeader();
-    config.headers.set('Authorization', header);
-    return config;
-  });
-
-  http.interceptors.response.use(
-    (response) => response,
-    async (error) => {
-      const status = error?.response?.status;
-      const config = error?.config as RetriableConfig | undefined;
-
-      if (
-        status === HttpStatus.UNAUTHORIZED &&
-        config &&
-        !config._authRetried &&
-        typeof authProvider.refresh === 'function'
-      ) {
-        config._authRetried = true;
+export function withAuth(http: HttpClient, authProvider: AuthProvider): HttpClient {
+  return {
+    async request<T>(request: HttpRequest): Promise<HttpResponse<T>> {
+      const authorized = await withAuthorization(request, authProvider);
+      try {
+        return await http.request<T>(authorized);
+      } catch (error) {
+        if (
+          !isHttpError(error) ||
+          error.status !== HttpStatus.UNAUTHORIZED ||
+          typeof authProvider.refresh !== 'function'
+        ) {
+          throw error;
+        }
         try {
           await authProvider.refresh();
-          const header = await authProvider.getAuthorizationHeader();
-          config.headers?.set?.('Authorization', header);
         } catch {
-          return Promise.reject(error);
+          throw error;
         }
-        return http.request(config);
+        const retried = await withAuthorization(request, authProvider);
+        return http.request<T>(retried);
       }
-
-      return Promise.reject(error);
     },
-  );
+  };
+}
+
+async function withAuthorization(request: HttpRequest, authProvider: AuthProvider): Promise<HttpRequest> {
+  const header = await authProvider.getAuthorizationHeader();
+  return {
+    ...request,
+    headers: { ...request.headers, Authorization: header },
+  };
 }

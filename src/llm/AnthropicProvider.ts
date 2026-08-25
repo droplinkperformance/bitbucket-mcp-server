@@ -1,8 +1,8 @@
-import axios, { type AxiosInstance } from 'axios';
 import type { LlmProvider } from './LlmProvider.js';
 import { readOptions } from './LlmProvider.js';
 import { parseJsonFromText } from './json.js';
 import { LlmError } from '../shared/errors.js';
+import { createHttpClient, isHttpError, type HttpClient } from '../infrastructure/http/client.js';
 
 export interface AnthropicProviderOptions {
   apiKey: string;
@@ -10,24 +10,24 @@ export interface AnthropicProviderOptions {
   defaultModel?: string;
   defaultTemperature: number;
   defaultMaxOutputTokens: number;
-  http?: AxiosInstance;
+  http?: HttpClient;
 }
 
 /** Anthropic Messages API implementation. Vendor specifics live only here. */
 export class AnthropicProvider implements LlmProvider {
-  private readonly http: AxiosInstance;
+  private readonly http: HttpClient;
 
   constructor(private readonly options: AnthropicProviderOptions) {
     this.http =
       options.http ??
-      axios.create({
-        baseURL: options.baseUrl,
+      createHttpClient({
+        baseUrl: options.baseUrl,
+        timeoutMs: 120_000,
         headers: {
           'x-api-key': options.apiKey,
           'anthropic-version': '2023-06-01',
           'Content-Type': 'application/json',
         },
-        timeout: 120_000,
       });
   }
 
@@ -41,12 +41,18 @@ export class AnthropicProvider implements LlmProvider {
       .join('\n\n');
 
     try {
-      const response = await this.http.post('/v1/messages', {
-        model,
-        max_tokens: opts.maxOutputTokens ?? this.options.defaultMaxOutputTokens,
-        temperature: opts.temperature ?? this.options.defaultTemperature,
-        ...(system ? { system } : {}),
-        messages: [{ role: 'user', content: prompt }],
+      const response = await this.http.request<{
+        content?: Array<{ type: string; text?: string }>;
+      }>({
+        method: 'POST',
+        url: '/v1/messages',
+        body: {
+          model,
+          max_tokens: opts.maxOutputTokens ?? this.options.defaultMaxOutputTokens,
+          temperature: opts.temperature ?? this.options.defaultTemperature,
+          ...(system ? { system } : {}),
+          messages: [{ role: 'user', content: prompt }],
+        },
       });
 
       const blocks: Array<{ type: string; text?: string }> = response.data?.content ?? [];
@@ -68,8 +74,8 @@ export class AnthropicProvider implements LlmProvider {
 }
 
 function extractDetails(error: unknown): unknown {
-  if (axios.isAxiosError(error)) {
-    return { status: error.response?.status, data: error.response?.data };
+  if (isHttpError(error)) {
+    return { status: error.status, data: error.data };
   }
   return error instanceof Error ? error.message : error;
 }

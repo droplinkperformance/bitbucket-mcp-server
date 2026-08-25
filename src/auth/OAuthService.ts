@@ -1,6 +1,6 @@
-import axios, { type AxiosInstance } from 'axios';
 import type { TokenBundle } from './token-store/TokenStore.js';
 import { AuthError } from '../shared/errors.js';
+import { createHttpClient, isHttpError, type HttpClient } from '../infrastructure/http/client.js';
 
 export interface OAuthServiceOptions {
   clientId: string;
@@ -8,7 +8,7 @@ export interface OAuthServiceOptions {
   authorizeUrl: string;
   tokenUrl: string;
   redirectUri?: string;
-  http?: AxiosInstance;
+  http?: HttpClient;
 }
 
 interface RawTokenResponse {
@@ -31,10 +31,10 @@ interface RawTokenResponse {
  *  - The response field is `scope` (older payloads used `scopes`).
  */
 export class OAuthService {
-  private readonly http: AxiosInstance;
+  private readonly http: HttpClient;
 
   constructor(private readonly options: OAuthServiceOptions) {
-    this.http = options.http ?? axios.create({ timeout: 30_000 });
+    this.http = options.http ?? createHttpClient({ timeoutMs: 30_000 });
   }
 
   buildAuthorizeUrl(state?: string): string {
@@ -71,19 +71,21 @@ export class OAuthService {
       'base64',
     );
     try {
-      const response = await this.http.post<RawTokenResponse>(this.options.tokenUrl, body, {
+      const response = await this.http.request<RawTokenResponse>({
+        method: 'POST',
+        url: this.options.tokenUrl,
+        body,
         headers: {
           Authorization: `Basic ${basic}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
           Accept: 'application/json',
         },
       });
       return this.toBundle(response.data);
     } catch (error) {
-      if (axios.isAxiosError(error)) {
+      if (isHttpError(error)) {
         throw new AuthError('Bitbucket OAuth token request failed.', {
-          status: error.response?.status,
-          error: error.response?.data,
+          status: error.status,
+          error: error.data,
         });
       }
       throw new AuthError('Bitbucket OAuth token request failed.', error);

@@ -8,7 +8,7 @@ The primary value of this server is **AI-powered code review and pull request an
 
 ## Features (Phase 1)
 
-- Dual transports: **stdio** (Cursor / Claude Desktop) and **Streamable HTTP** (Fastify, for remote/production).
+- Dual transports: **stdio** (Cursor / Claude Desktop) and **Streamable HTTP** (Node `http`, for remote/production).
 - **Auto-discovered tools** via a `ToolRegistry` — no manual registration.
 - Explicit **`BitbucketContext`** (`workspace` + optional `repository`) on every tool — multi-workspace ready.
 - Resilient `BitbucketClient`: auth injection, auto-pagination, retry/backoff, rate-limit handling, caching, secret masking.

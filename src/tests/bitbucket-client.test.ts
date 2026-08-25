@@ -1,16 +1,28 @@
 import { describe, it, expect } from 'vitest';
-import axios, { AxiosError, type AxiosAdapter, type AxiosResponse } from 'axios';
 import { BitbucketClient } from '../clients/bitbucket/BitbucketClient.js';
 import { MemoryCacheProvider } from '../cache/MemoryCacheProvider.js';
 import { BitbucketRateLimitStrategy } from '../ratelimit/BitbucketRateLimitStrategy.js';
 import { silentLogger } from './helpers/fakes.js';
+import {
+  HttpError,
+  type HttpClient,
+  type HttpRequest,
+  type HttpResponse,
+} from '../infrastructure/http/client.js';
 
-function response(config: any, data: unknown, status = 200, headers: Record<string, string> = {}): AxiosResponse {
-  return { data, status, statusText: 'OK', headers, config };
+function ok<T>(data: T, headers: Record<string, string> = {}): HttpResponse<T> {
+  return { data, status: 200, headers, url: 'https://api.bitbucket.org/2.0' };
 }
 
-function makeClient(adapter: AxiosAdapter, overrides: { maxRetries?: number } = {}) {
-  const http = axios.create({ adapter, baseURL: 'https://api.bitbucket.org/2.0' });
+function makeClient(
+  handler: (request: HttpRequest) => Promise<HttpResponse<unknown>> | HttpResponse<unknown>,
+  overrides: { maxRetries?: number } = {},
+) {
+  const http: HttpClient = {
+    async request<T>(request: HttpRequest): Promise<HttpResponse<T>> {
+      return (await handler(request)) as HttpResponse<T>;
+    },
+  };
   return new BitbucketClient({
     baseUrl: 'https://api.bitbucket.org/2.0',
     authProvider: {
@@ -33,29 +45,29 @@ function makeClient(adapter: AxiosAdapter, overrides: { maxRetries?: number } = 
 describe('BitbucketClient', () => {
   it('injects the bearer token from the auth provider', async () => {
     let seen: string | undefined;
-    const client = makeClient(async (config) => {
-      seen = config.headers?.Authorization as string | undefined;
-      return response(config, { ok: true });
+    const client = makeClient(async (request) => {
+      seen = request.headers?.Authorization;
+      return ok({ ok: true });
     });
     await client.get('/user');
     expect(seen).toBe('Bearer token');
   });
 
   it('auto-paginates by following next links', async () => {
-    const client = makeClient(async (config) => {
-      const url = config.url ?? '';
+    const client = makeClient(async (request) => {
+      const url = request.url ?? '';
       if (url.endsWith('/items') || url.includes('page=1')) {
-        return response(config, { values: [1, 2], next: 'https://api.bitbucket.org/2.0/items?page=2' });
+        return ok({ values: [1, 2], next: 'https://api.bitbucket.org/2.0/items?page=2' });
       }
-      return response(config, { values: [3], next: undefined });
+      return ok({ values: [3], next: undefined });
     });
     const items = await client.getPaginated<number>('/items');
     expect(items).toEqual([1, 2, 3]);
   });
 
   it('stops paginating at the limit', async () => {
-    const client = makeClient(async (config) =>
-      response(config, { values: [1, 2, 3, 4, 5], next: 'https://api.bitbucket.org/2.0/items?page=2' }),
+    const client = makeClient(async () =>
+      ok({ values: [1, 2, 3, 4, 5], next: 'https://api.bitbucket.org/2.0/items?page=2' }),
     );
     const items = await client.getPaginated<number>('/items', { limit: 3 });
     expect(items).toEqual([1, 2, 3]);
@@ -63,12 +75,17 @@ describe('BitbucketClient', () => {
 
   it('retries on 429 then succeeds', async () => {
     let calls = 0;
-    const client = makeClient(async (config) => {
+    const client = makeClient(async () => {
       calls += 1;
       if (calls === 1) {
-        throw new AxiosError('rate limited', 'ERR', config, null, response(config, {}, 429, { 'retry-after': '0' }));
+        throw new HttpError('rate limited', {
+          status: 429,
+          headers: { 'retry-after': '0' },
+          data: {},
+          url: 'https://api.bitbucket.org/2.0/x',
+        });
       }
-      return response(config, { ok: true });
+      return ok({ ok: true });
     });
     const result = await client.get<{ ok: boolean }>('/x');
     expect(result).toEqual({ ok: true });
@@ -76,17 +93,22 @@ describe('BitbucketClient', () => {
   });
 
   it('maps 404 to a NotFoundError', async () => {
-    const client = makeClient(async (config) => {
-      throw new AxiosError('nf', 'ERR', config, null, response(config, { error: 'x' }, 404));
+    const client = makeClient(async () => {
+      throw new HttpError('nf', {
+        status: 404,
+        headers: {},
+        data: { error: 'x' },
+        url: 'https://api.bitbucket.org/2.0/missing',
+      });
     });
     await expect(client.get('/missing')).rejects.toMatchObject({ code: 'not_found' });
   });
 
   it('caches GET responses when a ttl is provided', async () => {
     let calls = 0;
-    const client = makeClient(async (config) => {
+    const client = makeClient(async () => {
       calls += 1;
-      return response(config, { n: calls });
+      return ok({ n: calls });
     });
     const first = await client.get<{ n: number }>('/cached', { cacheTtlSeconds: 60, cacheKey: 'k' });
     const second = await client.get<{ n: number }>('/cached', { cacheTtlSeconds: 60, cacheKey: 'k' });

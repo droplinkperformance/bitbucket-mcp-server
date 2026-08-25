@@ -1,11 +1,16 @@
-import axios, { type AxiosInstance, type AxiosResponse } from 'axios';
 import type { AuthProvider } from '../../auth/AuthProvider.js';
-import { installAuthMiddleware } from '../../auth/AuthMiddleware.js';
+import { withAuth } from '../../auth/AuthMiddleware.js';
 import type { CacheProvider } from '../../cache/CacheProvider.js';
 import type { RateLimitStrategy } from '../../ratelimit/RateLimitStrategy.js';
 import { appMetrics } from '../../telemetry/metrics.js';
 import { maskingService } from '../../services/masking/Service.js';
 import type { Logger } from '../../infrastructure/logger/pino.js';
+import {
+  createHttpClient,
+  isHttpError,
+  type HttpClient,
+  type HttpResponse,
+} from '../../infrastructure/http/client.js';
 import {
   AuthError,
   BitbucketApiError,
@@ -44,7 +49,7 @@ export interface BitbucketClientOptions {
   logger: Logger;
   /** Injectable sleeper for deterministic tests. */
   sleep?: (ms: number) => Promise<void>;
-  http?: AxiosInstance;
+  http?: HttpClient;
 }
 
 const defaultSleep = (ms: number): Promise<void> =>
@@ -57,20 +62,19 @@ const defaultSleep = (ms: number): Promise<void> =>
  * typed error mapping with secret masking.
  */
 export class BitbucketClient {
-  private readonly http: AxiosInstance;
+  private readonly http: HttpClient;
   private readonly sleep: (ms: number) => Promise<void>;
 
   constructor(private readonly options: BitbucketClientOptions) {
-    this.http =
+    const inner =
       options.http ??
-      axios.create({
-        baseURL: options.baseUrl,
-        timeout: 60_000,
-        // Bitbucket returns JSON by default; diff endpoints return text.
+      createHttpClient({
+        baseUrl: options.baseUrl,
+        timeoutMs: 60_000,
         headers: { Accept: 'application/json' },
       });
+    this.http = withAuth(inner, options.authProvider);
     this.sleep = options.sleep ?? defaultSleep;
-    installAuthMiddleware(this.http, options.authProvider);
   }
 
   async request<T>(options: BitbucketRequestOptions): Promise<T> {
@@ -116,7 +120,7 @@ export class BitbucketClient {
     let params: Record<string, unknown> | undefined = options.params;
 
     while (nextUrl) {
-      const response: AxiosResponse<BitbucketPage<T>> = await this.rawRequest<BitbucketPage<T>>({
+      const response: HttpResponse<BitbucketPage<T>> = await this.rawRequest<BitbucketPage<T>>({
         url: nextUrl,
         method: 'GET',
         params,
@@ -136,7 +140,7 @@ export class BitbucketClient {
     return collected;
   }
 
-  private async rawRequest<T>(options: BitbucketRequestOptions): Promise<AxiosResponse<T>> {
+  private async rawRequest<T>(options: BitbucketRequestOptions): Promise<HttpResponse<T>> {
     const method = options.method ?? 'GET';
     let attempt = 0;
 
@@ -147,13 +151,13 @@ export class BitbucketClient {
         const response = await this.http.request<T>({
           url: options.url,
           method,
-          params: options.params,
-          data: options.data,
+          query: options.params,
+          body: options.data,
           headers: options.headers,
-          responseType: options.responseType === 'text' ? 'text' : 'json',
+          parse: options.responseType === 'text' ? 'text' : 'json',
         });
 
-        const info = this.options.rateLimit.parseHeaders(response.headers as Record<string, string>);
+        const info = this.options.rateLimit.parseHeaders(response.headers);
         this.options.rateLimit.recordQuota(info);
         appMetrics.recordLatency(Date.now() - startedAt, { method, status: response.status });
         this.options.logger.debug(
@@ -162,10 +166,8 @@ export class BitbucketClient {
         return response;
       } catch (error) {
         appMetrics.recordLatency(Date.now() - startedAt, { method });
-        const status = axios.isAxiosError(error) ? error.response?.status : undefined;
-        const headers = axios.isAxiosError(error)
-          ? ((error.response?.headers as Record<string, string>) ?? {})
-          : {};
+        const status = isHttpError(error) ? error.status : undefined;
+        const headers = isHttpError(error) ? error.headers : {};
         const info = this.options.rateLimit.parseHeaders(headers);
 
         const decision = this.options.rateLimit.getRetryDecision({ attempt, status, info, error });
@@ -192,8 +194,8 @@ export class BitbucketClient {
   }
 
   private mapError(error: unknown, status: number | undefined, retryAfterMs?: number): Error {
-    const details = axios.isAxiosError(error)
-      ? maskingService.mask({ data: error.response?.data, url: error.config?.url })
+    const details = isHttpError(error)
+      ? maskingService.mask({ data: error.data, url: error.url })
       : maskingService.mask({ message: error instanceof Error ? error.message : String(error) });
 
     switch (status) {

@@ -1,8 +1,8 @@
-import axios, { type AxiosInstance } from 'axios';
 import type { LlmProvider } from './LlmProvider.js';
 import { readOptions } from './LlmProvider.js';
 import { parseJsonFromText } from './json.js';
 import { LlmError } from '../shared/errors.js';
+import { createHttpClient, isHttpError, type HttpClient } from '../infrastructure/http/client.js';
 
 export interface OpenAiProviderOptions {
   apiKey: string;
@@ -10,20 +10,20 @@ export interface OpenAiProviderOptions {
   defaultModel?: string;
   defaultTemperature: number;
   defaultMaxOutputTokens: number;
-  http?: AxiosInstance;
+  http?: HttpClient;
 }
 
 /** OpenAI Chat Completions implementation. Vendor specifics live only here. */
 export class OpenAiProvider implements LlmProvider {
-  private readonly http: AxiosInstance;
+  private readonly http: HttpClient;
 
   constructor(private readonly options: OpenAiProviderOptions) {
     this.http =
       options.http ??
-      axios.create({
-        baseURL: options.baseUrl,
+      createHttpClient({
+        baseUrl: options.baseUrl,
+        timeoutMs: 120_000,
         headers: { Authorization: `Bearer ${options.apiKey}`, 'Content-Type': 'application/json' },
-        timeout: 120_000,
       });
   }
 
@@ -39,12 +39,18 @@ export class OpenAiProvider implements LlmProvider {
     messages.push({ role: 'user', content: prompt });
 
     try {
-      const response = await this.http.post('/chat/completions', {
-        model,
-        temperature: opts.temperature ?? this.options.defaultTemperature,
-        max_tokens: opts.maxOutputTokens ?? this.options.defaultMaxOutputTokens,
-        ...(wantsJson ? { response_format: { type: 'json_object' } } : {}),
-        messages,
+      const response = await this.http.request<{
+        choices?: Array<{ message?: { content?: string } }>;
+      }>({
+        method: 'POST',
+        url: '/chat/completions',
+        body: {
+          model,
+          temperature: opts.temperature ?? this.options.defaultTemperature,
+          max_tokens: opts.maxOutputTokens ?? this.options.defaultMaxOutputTokens,
+          ...(wantsJson ? { response_format: { type: 'json_object' } } : {}),
+          messages,
+        },
       });
 
       const content: string | undefined = response.data?.choices?.[0]?.message?.content;
@@ -62,8 +68,8 @@ export class OpenAiProvider implements LlmProvider {
 }
 
 function extractDetails(error: unknown): unknown {
-  if (axios.isAxiosError(error)) {
-    return { status: error.response?.status, data: error.response?.data };
+  if (isHttpError(error)) {
+    return { status: error.status, data: error.data };
   }
   return error instanceof Error ? error.message : error;
 }

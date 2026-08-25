@@ -1,8 +1,8 @@
-import axios, { type AxiosInstance } from 'axios';
 import type { LlmProvider } from './LlmProvider.js';
 import { readOptions } from './LlmProvider.js';
 import { parseJsonFromText } from './json.js';
 import { LlmError } from '../shared/errors.js';
+import { createHttpClient, isHttpError, type HttpClient } from '../infrastructure/http/client.js';
 
 export interface GeminiProviderOptions {
   apiKey: string;
@@ -10,17 +10,15 @@ export interface GeminiProviderOptions {
   defaultModel?: string;
   defaultTemperature: number;
   defaultMaxOutputTokens: number;
-  http?: AxiosInstance;
+  http?: HttpClient;
 }
 
 /** Google Gemini generateContent implementation. Vendor specifics live only here. */
 export class GeminiProvider implements LlmProvider {
-  private readonly http: AxiosInstance;
+  private readonly http: HttpClient;
 
   constructor(private readonly options: GeminiProviderOptions) {
-    this.http =
-      options.http ??
-      axios.create({ baseURL: options.baseUrl, timeout: 120_000 });
+    this.http = options.http ?? createHttpClient({ baseUrl: options.baseUrl, timeoutMs: 120_000 });
   }
 
   async complete<T>(prompt: string, options?: Record<string, unknown>): Promise<T> {
@@ -29,24 +27,24 @@ export class GeminiProvider implements LlmProvider {
     const wantsJson = opts.json !== false;
 
     try {
-      const response = await this.http.post(
-        `/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-        {
+      const response = await this.http.request<{
+        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+      }>({
+        method: 'POST',
+        url: `/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+        query: { key: this.options.apiKey },
+        body: {
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          ...(opts.system
-            ? { systemInstruction: { parts: [{ text: opts.system }] } }
-            : {}),
+          ...(opts.system ? { systemInstruction: { parts: [{ text: opts.system }] } } : {}),
           generationConfig: {
             temperature: opts.temperature ?? this.options.defaultTemperature,
             maxOutputTokens: opts.maxOutputTokens ?? this.options.defaultMaxOutputTokens,
             ...(wantsJson ? { responseMimeType: 'application/json' } : {}),
           },
         },
-        { params: { key: this.options.apiKey } },
-      );
+      });
 
-      const parts: Array<{ text?: string }> =
-        response.data?.candidates?.[0]?.content?.parts ?? [];
+      const parts: Array<{ text?: string }> = response.data?.candidates?.[0]?.content?.parts ?? [];
       const text = parts.map((p) => p.text ?? '').join('');
       if (!text) {
         throw new LlmError('Gemini returned an empty completion.');
@@ -62,8 +60,8 @@ export class GeminiProvider implements LlmProvider {
 }
 
 function extractDetails(error: unknown): unknown {
-  if (axios.isAxiosError(error)) {
-    return { status: error.response?.status, data: error.response?.data };
+  if (isHttpError(error)) {
+    return { status: error.status, data: error.data };
   }
   return error instanceof Error ? error.message : error;
 }

@@ -89,6 +89,8 @@ Merges to `main` run [`.github/workflows/release.yml`](.github/workflows/release
 
 Other messages skip publish. The GitHub secret `NPM_TOKEN` (npm Automation token for the `droplinkperformance` org) is required.
 
+After a successful npm release, the same workflow publishes metadata to the [MCP Registry](https://modelcontextprotocol.io/registry/quickstart) as `io.github.droplinkperformance/bitbucket-mcp-server` (OIDC, no extra secret). [github.com/mcp](https://github.com/mcp) syncs from that registry; if the server does not appear, email partnerships@github.com.
+
 To stay on `0.x` for the first release, tag the current commit (`git tag v0.1.0 && git push origin v0.1.0`) before the first conventional merge; otherwise semantic-release starts at `1.0.0`.
 
 ## Configuration

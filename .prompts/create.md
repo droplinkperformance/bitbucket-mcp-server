@@ -148,6 +148,8 @@ get_pull_request
 
 create_pull_request
 
+update_pull_request
+
 approve_pull_request
 
 unapprove_pull_request

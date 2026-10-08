@@ -106,6 +106,10 @@ export class BitbucketClient {
     return this.request<T>({ ...options, url, method: 'POST', data });
   }
 
+  async put<T>(url: string, data?: unknown, options: Omit<BitbucketRequestOptions, 'url' | 'method' | 'data'> = {}): Promise<T> {
+    return this.request<T>({ ...options, url, method: 'PUT', data });
+  }
+
   async getText(url: string, options: Omit<BitbucketRequestOptions, 'url' | 'method' | 'responseType'> = {}): Promise<string> {
     return this.request<string>({ ...options, url, method: 'GET', responseType: 'text' });
   }

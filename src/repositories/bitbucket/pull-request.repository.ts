@@ -3,6 +3,7 @@ import type {
   CreatePullRequestParams,
   ListPullRequestsParams,
   PullRequestRepository,
+  UpdatePullRequestParams,
 } from '../../domain/contracts/pull-request.repository.js';
 import type {
   Commit,
@@ -66,6 +67,21 @@ export class BitbucketPullRequestRepository implements PullRequestRepository {
     }
     const raw = await this.client.post<BitbucketPullRequest>(
       endpoints.pullRequests(params.context),
+      body,
+    );
+    return toPullRequest(raw);
+  }
+
+  async update(params: UpdatePullRequestParams): Promise<PullRequest> {
+    const body: Record<string, unknown> = {};
+    if (params.title !== undefined) {
+      body.title = params.title;
+    }
+    if (params.description !== undefined) {
+      body.description = params.description;
+    }
+    const raw = await this.client.put<BitbucketPullRequest>(
+      endpoints.pullRequest(params.context, params.pullRequestId),
       body,
     );
     return toPullRequest(raw);

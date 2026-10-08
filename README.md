@@ -24,6 +24,7 @@ The primary value of this server is **AI-powered code review and pull request an
 | `list_pull_requests` | List PRs (filter by state/query). |
 | `get_pull_request` | Fetch a PR by id. |
 | `create_pull_request` | Open a PR. |
+| `update_pull_request` | Edit an open PR title and/or description. |
 | `get_pull_request_diff` | Raw unified diff. |
 | `get_pull_request_files` | Changed files + line stats. |
 | `get_pull_request_comments` | PR comments. |

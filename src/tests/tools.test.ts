@@ -54,6 +54,7 @@ describe('ToolRegistry + tools', () => {
         'get_pull_request_diff',
         'get_pull_request_files',
         'list_pull_requests',
+        'update_pull_request',
       ].sort(),
     );
   });
@@ -74,6 +75,28 @@ describe('ToolRegistry + tools', () => {
     const payload = result.structuredContent as { data: unknown[] };
     expect(Array.isArray(payload.data)).toBe(true);
     expect(payload.data).toHaveLength(1);
+  });
+
+  it('update_pull_request updates title and/or description', async () => {
+    const deps = buildDeps();
+    const registry = new ToolRegistry(deps);
+    const modules = await registry.discover();
+    const tool = modules.find((m) => m.name === 'update_pull_request')!;
+    const result = await tool.handler({
+      repository: 'repo',
+      pullRequestId: 42,
+      title: 'Updated title',
+      description: 'Updated body',
+    });
+    const payload = result.structuredContent as { data: { id: number; title: string } };
+    expect(payload.data.id).toBe(42);
+    const fake = deps.pullRequestRepository as FakePullRequestRepository;
+    expect(fake.updated).toHaveLength(1);
+    expect(fake.updated[0]).toMatchObject({
+      pullRequestId: 42,
+      title: 'Updated title',
+      description: 'Updated body',
+    });
   });
 
   it('analyze_pull_request returns a ReviewResult via the agent', async () => {

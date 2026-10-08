@@ -44,6 +44,7 @@ export interface FakePullRequestData {
 
 export class FakePullRequestRepository implements PullRequestRepository {
   created: unknown[] = [];
+  updated: unknown[] = [];
   addedComments: unknown[] = [];
 
   constructor(private readonly data: FakePullRequestData) {}
@@ -56,6 +57,10 @@ export class FakePullRequestRepository implements PullRequestRepository {
   }
   async create(params: unknown): Promise<PullRequest> {
     this.created.push(params);
+    return this.data.pullRequest;
+  }
+  async update(params: unknown): Promise<PullRequest> {
+    this.updated.push(params);
     return this.data.pullRequest;
   }
   async getDiff(): Promise<string> {
